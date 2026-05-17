@@ -3,6 +3,7 @@
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 #include <cstring>
+#include <esp_log.h>
 #include <ostream>
 #include <iostream>
 #include "driver/gpio.h"
@@ -33,6 +34,23 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
     // Cria o loop de eventos padrão para gerar log dos estados do Wifi, necessário implementar posteriormente!
     esp_event_loop_create_default();
 
+    // Registra o Handler do Wifi para monitorar o status posteriormente
+    esp_event_handler_instance_register(
+        WIFI_EVENT,
+        ESP_EVENT_ANY_ID,
+        &wifi_event_handler,
+        NULL,
+        NULL
+    );
+
+    esp_event_handler_instance_register(
+        IP_EVENT,
+        IP_EVENT_STA_GOT_IP,
+        &wifi_event_handler,
+        NULL,
+        NULL
+    );
+
     // Cria ‘interface’ de rede padrão para conexão STA
     esp_netif_create_default_wifi_sta();
 
@@ -42,7 +60,6 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
 
     // Estrutura de dados para configuração da rede
     wifi_config_t wifi_config = {};
-    esp_wifi_set_ps(WIFI_PS_NONE);
     strcpy(reinterpret_cast<char*>(wifi_config.sta.ssid), wifi_ssid);         // Define o SSID de conexão
     strcpy(reinterpret_cast<char*>(wifi_config.sta.password), wifi_pass);     // Define a senha da conexão
     esp_wifi_set_mode(WIFI_MODE_STA);                                         // Define o driver para atuar como cliente
@@ -52,6 +69,7 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
     switch(esp_wifi_start()){
         case ESP_OK:
             std::cout << "[Info] Driver Wifi iniciado com sucesso!" << std::endl;
+            esp_wifi_set_ps(WIFI_PS_NONE);
             // Habilita modo de economia de energia do WiFi para reduzir consumo e aquecimento
             // (minimiza atividade do modem quando possível)
             break;
@@ -84,4 +102,28 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
     }
 
     return false;
+}
+
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+{
+    //200	Beacon timeout
+    //201	No AP found
+    //202	Auth fail
+    //203	Assoc fail
+    //8	Disconnect normal
+    //15	4-way handshake timeout
+
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
+    {
+        wifi_event_sta_disconnected_t* event = (wifi_event_sta_disconnected_t*) event_data;
+
+        ESP_LOGW("WIFI","Desconectado! motivo=%d",event->reason);
+
+        esp_wifi_connect();
+    }
+
+    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+    {
+        ESP_LOGI("WIFI","Conectado!");
+    }
 }
