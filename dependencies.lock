@@ -1,0 +1,17 @@
+dependencies:
+  esp_type_utils:
+    dependencies: []
+    source:
+      path: C:\Espressif\aether-poseidon-esp-idf\components\esp_type_utils
+      type: local
+    version: 1.2.7
+  idf:
+    source:
+      type: idf
+    version: 5.5.1
+direct_dependencies:
+- idf
+- k0i05/esp_type_utils
+manifest_hash: 4bc73d71baa913ccbf424b9e5d13997948bef8b943f62f0deafbf32ec81bffbd
+target: esp32
+version: 2.0.0

@@ -1,0 +1,2 @@
+idf.py -p COM5 monitor
+idf.py -p COM5 flash monitor
