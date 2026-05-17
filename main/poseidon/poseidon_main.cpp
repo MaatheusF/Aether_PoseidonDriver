@@ -11,6 +11,8 @@
  */
 void poseidon_main(){
 
+    vTaskDelay(pdMS_TO_TICKS(30000));
+
     /// Conexão com o Servidor
     while (true)
     {

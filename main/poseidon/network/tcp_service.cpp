@@ -90,7 +90,7 @@ bool tcp_service_init(const char* server_ip, uint16_t server_port){
         return false;
     }
 
-    ESP_LOGE("[POSEIDON]","Conexão realizada com sucesso com o servidor Aether");
+    ESP_LOGI("[POSEIDON]","Conexão realizada com sucesso com o servidor Aether");
 
     // Realiza o Handshake inicial se identificando
     while (true)
@@ -238,58 +238,14 @@ void initialize_sntp()
 
 void sensor_read_thread(void* arg)
 {
-    ESP_LOGE("[POSEIDON]","Inicializando Thread para leitura dos sensores...");
+    ESP_LOGI("[POSEIDON]","Inicializando Thread para leitura dos sensores...");
     initialize_sntp();
     initialConfig();
 
     using json = nlohmann::json;
 
-    // Inicializa o sensor de temperatura interno (TSENS) para monitoramento do SoC
-#if CONFIG_SOC_TEMP_SENSOR_SUPPORTED
-    #ifdef TEMPERATURE_SENSOR_CLK_SRC_DEFAULT
-        temperature_sensor_config_t tsens_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 125);
-    #else
-        temperature_sensor_config_t tsens_cfg;
-        tsens_cfg.range_min = -10;
-        tsens_cfg.range_max = 125;
-        tsens_cfg.clk_src = (temperature_sensor_clk_src_t)0; // fallback
-        tsens_cfg.flags.allow_pd = 0;
-    #endif
-    temperature_sensor_handle_t tsens_handle = nullptr;
-    if (temperature_sensor_install(&tsens_cfg, &tsens_handle) != ESP_OK) {
-        ESP_LOGE("[POSEIDON]", "Falha ao instalar driver do sensor de temperatura interno");
-        tsens_handle = nullptr;
-    } else {
-        if (temperature_sensor_enable(tsens_handle) != ESP_OK) {
-            ESP_LOGE("[POSEIDON]", "Falha ao habilitar sensor de temperatura interno");
-            // tenta desinstalar se habilitação falhar
-            temperature_sensor_uninstall(tsens_handle);
-            tsens_handle = nullptr;
-        }
-    }
-#else
-    temperature_sensor_handle_t tsens_handle = nullptr;
-#endif // CONFIG_SOC_TEMP_SENSOR_SUPPORTED
-
-    // Nota: não fazemos leitura imediata aqui — vamos logar a cada iteração do loop
-
     while (true)
     {
-        // Leitura da temperatura interna do chip (para monitorar aquecimento)
-#if CONFIG_SOC_TEMP_SENSOR_SUPPORTED
-        if (tsens_handle != nullptr) {
-            float internal_c = 0.0f;
-            if (temperature_sensor_get_celsius(tsens_handle, &internal_c) == ESP_OK) {
-                ESP_LOGI("[POSEIDON]", "Temperatura interna ESP32: %.2f C", internal_c);
-                // Alerta simples se temperatura muito alta
-                if (internal_c >= 75.0f) {
-                    ESP_LOGW("[POSEIDON]", "ALERTA: Temperatura interna alta: %.2f C", internal_c);
-                }
-            } else {
-                ESP_LOGW("[POSEIDON]", "Falha ao ler temperatura interna do ESP32");
-            }
-        }
-#endif // CONFIG_SOC_TEMP_SENSOR_SUPPORTED
         json j;
         time_t now;
         time(&now);
@@ -348,7 +304,7 @@ void sensor_read_thread(void* arg)
             vTaskDelete(nullptr);
         }
 
-        ESP_LOGE("[POSEIDON]","Dados do Sensor enviado com sucesso!");
+        ESP_LOGI("[POSEIDON]","Dados do Sensor enviado com sucesso!");
 
         vTaskDelay(pdMS_TO_TICKS(60000)); //Evita consumo elevado de CPU
     }

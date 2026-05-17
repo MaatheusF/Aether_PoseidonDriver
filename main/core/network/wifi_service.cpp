@@ -42,6 +42,7 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
 
     // Estrutura de dados para configuração da rede
     wifi_config_t wifi_config = {};
+    esp_wifi_set_ps(WIFI_PS_NONE);
     strcpy(reinterpret_cast<char*>(wifi_config.sta.ssid), wifi_ssid);         // Define o SSID de conexão
     strcpy(reinterpret_cast<char*>(wifi_config.sta.password), wifi_pass);     // Define a senha da conexão
     esp_wifi_set_mode(WIFI_MODE_STA);                                         // Define o driver para atuar como cliente
@@ -53,7 +54,6 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
             std::cout << "[Info] Driver Wifi iniciado com sucesso!" << std::endl;
             // Habilita modo de economia de energia do WiFi para reduzir consumo e aquecimento
             // (minimiza atividade do modem quando possível)
-            esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
             break;
         case ESP_ERR_WIFI_NOT_INIT:
             std::cout << "[Erro] O driver de rede não foi inicializado pelo esp_wifi_init!" << std::endl;
