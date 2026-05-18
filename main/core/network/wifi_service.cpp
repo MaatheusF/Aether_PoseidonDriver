@@ -8,6 +8,7 @@
 #include <iostream>
 #include "driver/gpio.h"
 
+
 constexpr gpio_num_t LED_GPIO = GPIO_NUM_2; // Pino do LED de Debug
 
 /**

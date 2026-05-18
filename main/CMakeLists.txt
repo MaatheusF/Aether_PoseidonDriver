@@ -2,6 +2,7 @@ idf_component_register(
         SRCS
         "main.cpp"
         "core/network/wifi_service.cpp"
+        "core/network/debug_server.cpp"
         "poseidon/poseidon_main.cpp"
         "poseidon/network/tcp_service.cpp"
 
