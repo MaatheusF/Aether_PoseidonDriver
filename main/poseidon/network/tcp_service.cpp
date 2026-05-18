@@ -217,29 +217,9 @@ bool sendHandshake()
     return true;
 }
 
-void initialize_sntp()
-{
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
-
-    time_t now = 0;
-    struct tm timeinfo = {};
-
-    while (timeinfo.tm_year < (2020 - 1900))
-    {
-        ESP_LOGI("NTP", "Aguardando sincronização...");
-        vTaskDelay(pdMS_TO_TICKS(2000));
-
-        time(&now);
-        localtime_r(&now, &timeinfo);
-    }
-}
-
 void sensor_read_thread(void* arg)
 {
     ESP_LOGI("[POSEIDON]","Inicializando Thread para leitura dos sensores...");
-    initialize_sntp();
     initialConfig();
 
     using json = nlohmann::json;
