@@ -8,24 +8,14 @@
 #include "freertos/task.h"
 #include "driver/temperature_sensor.h"
 
-
 extern "C" void app_main()
 {
 
-    /// Conexão com o Wifi
-    while (true)
-    {
-        ESP_LOGI("[INFO]","Iniciando o processo de conexão com o Wifi...");
-        if (wifi_start("Matheus","favero10"))
-        {
-            vTaskDelay(pdMS_TO_TICKS(20000)); // Aguarda 5 segundos antes de tentar novamente
-            ESP_LOGI("[INFO]", "Conexão com o Wifi realizada com sucesso");
-            break;
-        }
+    // ==================================
+    //     Conexão com o Wifi (Core)
+    // ==================================
 
-        ESP_LOGI("[ERROR]", "Falha ao conectar com o Wifi, tentando novamente...");
-        vTaskDelay(pdMS_TO_TICKS(10000)); // Aguarda 5 segundos antes de tentar novamente
-    }
+    wifi_start("Matheus","favero10");
 
     // ==================================
     //     Inicialização do Poseidon

@@ -8,47 +8,44 @@
 #include <iostream>
 #include "driver/gpio.h"
 
+constexpr gpio_num_t LED_GPIO = GPIO_NUM_2; // Pino do LED de Debug
+
 /**
  * @brief Inicia a configuração do Wifi, conectando o dispositivo a uma rede wifi utilizando o SSID e senha fornecidos
  * @param wifi_ssid SSID da rede wifi a ser conectada
  * @param wifi_pass Senha da rede wifi a ser conectada
- * @return true se a conexão for bem sucedida, false caso contrário
  */
-bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
+void wifi_start(const char* wifi_ssid, const char* wifi_pass)
 {
-    // Controle da Luz de Debug
-    const gpio_num_t LED_GPIO = GPIO_NUM_2;
+    ESP_LOGI("WIFI", "Inicializando WiFi...");
     gpio_reset_pin(LED_GPIO);
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
-    gpio_set_level(LED_GPIO, 0);
 
     // Inicializa o NVS
-    nvs_flash_init();
+   ESP_ERROR_CHECK(nvs_flash_init());
 
     // Inicia o ESP Network Interface
-    if (esp_netif_init() == ESP_FAIL){
-        std::cout << "[Error] Falha ao iniciar o ESP Network Interface!" << std::endl;
-        return false;
-    }
+    ESP_ERROR_CHECK(esp_netif_init());
 
     // Cria o loop de eventos padrão para gerar log dos estados do Wifi, necessário implementar posteriormente!
-    esp_event_loop_create_default();
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     // Registra o Handler do Wifi para monitorar o status posteriormente
     esp_event_handler_instance_register(
         WIFI_EVENT,
         ESP_EVENT_ANY_ID,
         &wifi_event_handler,
-        NULL,
-        NULL
+        nullptr,
+        nullptr
     );
 
+    // Registra o Handler do Wifi para monitorar o status posteriormente
     esp_event_handler_instance_register(
         IP_EVENT,
         IP_EVENT_STA_GOT_IP,
         &wifi_event_handler,
-        NULL,
-        NULL
+        nullptr,
+        nullptr
     );
 
     // Cria ‘interface’ de rede padrão para conexão STA
@@ -56,74 +53,69 @@ bool wifi_start(const char* wifi_ssid, const char* wifi_pass)
 
     // Inicialização padrão da estrutura de configuração do Wi-Fi
     const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_wifi_init(&cfg); // Inicia o Driver
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg)); // Inicia o Driver
 
     // Estrutura de dados para configuração da rede
     wifi_config_t wifi_config = {};
     strcpy(reinterpret_cast<char*>(wifi_config.sta.ssid), wifi_ssid);         // Define o SSID de conexão
     strcpy(reinterpret_cast<char*>(wifi_config.sta.password), wifi_pass);     // Define a senha da conexão
-    esp_wifi_set_mode(WIFI_MODE_STA);                                         // Define o driver para atuar como cliente
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);                           // Aplica as configurações no driver de rede
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));                                         // Define o driver para atuar como cliente
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));                           // Aplica as configurações no driver de rede
 
     // Inicia o Driver de Rede
-    switch(esp_wifi_start()){
-        case ESP_OK:
-            std::cout << "[Info] Driver Wifi iniciado com sucesso!" << std::endl;
-            esp_wifi_set_ps(WIFI_PS_NONE);
-            // Habilita modo de economia de energia do WiFi para reduzir consumo e aquecimento
-            // (minimiza atividade do modem quando possível)
-            break;
-        case ESP_ERR_WIFI_NOT_INIT:
-            std::cout << "[Erro] O driver de rede não foi inicializado pelo esp_wifi_init!" << std::endl;
-            gpio_set_level(LED_GPIO, 1);    // Liga a luz de debug indicando erro no processo
-            break;
-        case ESP_ERR_INVALID_ARG:
-            std::cout << "[Erro] Ocorreu um erro inesperado, verifique as configurações do Wifi!" << std::endl;
-            gpio_set_level(LED_GPIO, 1);    // Liga a luz de debug indicando erro no processo
-            break;
-        case ESP_ERR_NO_MEM:
-            std::cout << "[Erro] Não á memoria suficiente para realizar a conexão com o Wifi!" << std::endl;
-            gpio_set_level(LED_GPIO, 1);    // Liga a luz de debug indicando erro no processo
-            break;
-        case ESP_ERR_WIFI_CONN:
-            std::cout << "[Erro] Erro interno do WiFi, driver ou bloco de controle!" << std::endl;
-            gpio_set_level(LED_GPIO, 1);    // Liga a luz de debug indicando erro no processo
-            break;
-        default:
-            std::cout << "[Erro] Erro desconhecido!" << std::endl;
-            gpio_set_level(LED_GPIO, 1);    // Liga a luz de debug indicando erro no processo
-            break;
-    }
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     // Inicia a conexão com o Wifi
-    if (esp_wifi_connect() == ESP_OK) {
-        gpio_set_level(LED_GPIO, 0);
-        return true;
+    ESP_LOGI("WIFI", "Tentando conectar...");
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE("WIFI","Falha ao iniciar conexao: %s",esp_err_to_name(err));
     }
-
-    return false;
 }
 
-static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+/**
+ * @brief Handler de eventos do Wifi, responsável por monitorar o status da conexão e reagir a eventos de desconexão ou conexão
+ * @param arg Argumento genérico (não utilizado)
+ * @param event_base Base do evento (WIFI_EVENT ou IP_EVENT)
+ * @param event_id ID do evento específico (WIFI_EVENT_STA_DISCONNECTED ou IP_EVENT_STA_GOT_IP)
+ * @param event_data Dados adicionais do evento (informações sobre a desconexão ou o IP obtido)
+ */
+void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
-    //200	Beacon timeout
-    //201	No AP found
-    //202	Auth fail
-    //203	Assoc fail
-    //8	Disconnect normal
-    //15	4-way handshake timeout
-
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
     {
-        wifi_event_sta_disconnected_t* event = (wifi_event_sta_disconnected_t*) event_data;
+        auto* event = static_cast<wifi_event_sta_disconnected_t*>(event_data);
 
-        ESP_LOGW("WIFI","Desconectado! motivo=%d",event->reason);
-
-        esp_wifi_connect();
+        switch (event->reason)
+        {
+            case WIFI_REASON_BEACON_TIMEOUT:
+                ESP_LOGW("WIFI","Beacon Timeout");
+                break;
+            case WIFI_REASON_NO_AP_FOUND:
+                ESP_LOGW("WIFI","AP não encontrado");
+                break;
+            case WIFI_REASON_AUTH_EXPIRE:
+                ESP_LOGW("WIFI","Autenticação Expirou");
+                break;
+            case WIFI_REASON_AUTH_FAIL:
+                ESP_LOGW("WIFI","Autenticação invalida para se conectar ao Wifi");
+                gpio_set_level(LED_GPIO, 1);
+                break;
+            case WIFI_REASON_ASSOC_TOOMANY:
+                ESP_LOGW("WIFI","Muitos dispositivos conectados");
+                break;
+            default:
+                ESP_LOGW("WIFI","Erro desconhecido: motivo=%d", event->reason);
+                gpio_set_level(LED_GPIO, 1);
+        }
+        esp_wifi_connect(); // Tenta reconectar
     }
 
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
     {
-        ESP_LOGI("WIFI","Conectado!");
+        gpio_set_level(LED_GPIO, 0); // Desliga a luz de debug
+        ESP_LOGI("WIFI","Conectado com sucesso!");
     }
 }
