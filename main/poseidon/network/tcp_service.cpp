@@ -13,6 +13,183 @@
 #include "driver/temperature_sensor.h"
 #include "sdkconfig.h"
 
+// Refactor init
+
+static auto TAG = "[TCP]";
+static int tcp_socket = -1;
+static bool connected = false;
+static tcp_event_handler_t event_handler = nullptr;
+static char server_host[64];
+static uint16_t server_port;
+
+static void emit_event(tcp_event_t event, const uint8_t* data = nullptr, size_t len = 0)
+{
+    if (event_handler)
+    {
+        event_handler(event, data, len);
+    }
+}
+
+void tcp_register_handler(tcp_event_handler_t handler)
+{
+    event_handler = handler;
+}
+
+bool tcp_is_connected()
+{
+    return connected;
+}
+
+bool tcp_send(const std::vector<uint8_t>& data)
+{
+    if (!connected)
+    {
+        return false;
+    }
+
+    int err = send(tcp_socket, data.data(), data.size(), 0);
+    if (err < 0)
+    {
+        ESP_LOGE(TAG, "Erro no envio");
+        connected = false;
+        emit_event(TCP_EVENT_DISCONNECTED);
+        close(tcp_socket);
+        tcp_socket = -1;
+        return false;
+    }
+
+    return true;
+}
+
+static void tcp_task(void* arg)
+{
+    while (true)
+    {
+        if (!connected)
+        {
+            ESP_LOGI(TAG, "Conectando...");
+
+            tcp_socket = socket(
+                AF_INET,
+                SOCK_STREAM,
+                IPPROTO_IP
+            );
+
+            if (tcp_socket < 0)
+            {
+                ESP_LOGE(TAG, "Erro socket");
+                vTaskDelay(pdMS_TO_TICKS(5000));
+                continue;
+            }
+
+            sockaddr_in dest_addr{};
+
+            dest_addr.sin_family = AF_INET;
+            dest_addr.sin_port = htons(server_port);
+
+            inet_pton(
+                AF_INET,
+                server_host,
+                &dest_addr.sin_addr
+            );
+
+            int err = connect(
+                tcp_socket,
+                reinterpret_cast<sockaddr*>(&dest_addr),
+                sizeof(dest_addr)
+            );
+
+            if (err != 0)
+            {
+                ESP_LOGW(TAG, "Falha conexao");
+                close(tcp_socket);
+                tcp_socket = -1;
+                vTaskDelay(pdMS_TO_TICKS(5000));
+                continue;
+            }
+
+            connected = true;
+
+            // Realiza o Handshake inicial no Aether Server
+            sendHandshake();
+
+            emit_event(TCP_EVENT_CONNECTED);
+        }
+
+        uint8_t rx_buffer[512];
+
+        int len = recv(
+            tcp_socket,
+            rx_buffer,
+            sizeof(rx_buffer),
+            MSG_DONTWAIT
+        );
+
+        if (len > 0)
+        {
+            emit_event(
+                TCP_EVENT_DATA_RECEIVED,
+                rx_buffer,
+                len
+            );
+        }
+        else if (len == 0)
+        {
+            ESP_LOGW(TAG, "Servidor desconectou");
+            connected = false;
+            emit_event(TCP_EVENT_DISCONNECTED);
+            close(tcp_socket);
+            tcp_socket = -1;
+        }
+        else
+        {
+            if (errno != EWOULDBLOCK && errno != EAGAIN)
+            {
+                ESP_LOGE(TAG, "Erro recv errno=%d (%s)", errno, strerror(errno));
+                connected = false;
+                emit_event(TCP_EVENT_DISCONNECTED);
+                close(tcp_socket);
+                tcp_socket = -1;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+void tcp_service_start(const char* host, uint16_t port)
+{
+    ESP_LOGI(TAG, "Inicializando conexão com o Servidor Aether...");
+    strncpy(server_host, host, sizeof(server_host));
+    server_port = port;
+    xTaskCreate(tcp_task, "tcp_task", 4096, nullptr, 5, nullptr);
+}
+
+void my_tcp_handler(tcp_event_t event,const uint8_t* data,size_t len)
+{
+    switch(event)
+    {
+    case TCP_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "TCP conectado");
+        break;
+
+    case TCP_EVENT_DISCONNECTED:
+        ESP_LOGW(TAG, "TCP desconectado");
+        break;
+
+    case TCP_EVENT_DATA_RECEIVED:
+        ESP_LOGI(TAG, "Pacote recebido");
+        break;
+
+    default:
+        break;
+    }
+}
+
+
+// Refactor end
+
+
 TaskHandle_t tcpListenTaskHandle = nullptr;     // Ponteiro da Task de comunicação TCP
 TaskHandle_t sensorReadTaskHandle = nullptr;    // Ponteiro da Task de leitura dos sensores
 int sock = -1; //Variavel permanente de conexão socket com o servidor;
@@ -48,7 +225,6 @@ void initialConfig() {
     if (search(sensor_addr, true))
     {
         ESP_LOGI("[DS18B20]", "Sensor encontrado!");
-
         ds18b20_setResolution(
             (const DeviceAddress*)&sensor_addr,
             1,
@@ -65,7 +241,7 @@ void initialConfig() {
  * Socket TCP para comunicação com o servidor Aether
 */
 bool tcp_service_init(const char* server_ip, uint16_t server_port){
-    ESP_LOGI("[POSEIDON]","Inicializando conexão TCP com o servidor Aether...");
+    /*ESP_LOGI("[POSEIDON]","Inicializando conexão TCP com o servidor Aether...");
 
     // Cria o Socket de Conexão
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -103,53 +279,10 @@ bool tcp_service_init(const char* server_ip, uint16_t server_port){
         vTaskDelay(pdMS_TO_TICKS(30000)); //Evita consumo elevado de CPU
     }
 
-    //xTaskCreate(tcp_service_thread_lister, "tcp_service_thread_lister", 4096, nullptr, 5, &tcpListenTaskHandle);
+    //xTaskCreate(tcp_service_thread_lister, "tcp_service_thread_lister", 4096, nullptr, 5, &tcpListenTaskHandle);*/
     xTaskCreate(sensor_read_thread, "sensor_read_thread", 4096, nullptr, 5, &sensorReadTaskHandle);
 
     return true;
-}
-
-void tcp_service_thread_lister(void* arg){
-    ESP_LOGE("[POSEIDON]","Inicializando Thread...");
-    /*
-    char rece_buffer[128]; // Buffer de recepção dos dados (128 bits)
-
-    while (true)
-    {
-        if (sock <0)
-        {
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            continue;
-        }
-
-        //Bloqueia a Thread e aguarda o recebimento de dados do Servidor
-        int len = recv(sock, rece_buffer, sizeof(rece_buffer) - 1, 0);
-
-        if (len > 0) {
-            rece_buffer[len] = 0;
-            processServerMessageBinary(std::string(rece_buffer));
-        }
-        else if (len == 0) {
-            ESP_LOGE("[POSEIDON]","[ERROR] Conexão com o servidor perdida.");
-            close(sock);
-            sock = -1;
-            vTaskDelete(nullptr);
-        }
-        else {
-            ESP_LOGE("[POSEIDON]","[ERROR] Ocorreu um erro ao receber os dados do Servidor");
-            close(sock);
-            sock = -1;
-            vTaskDelete(nullptr);
-        }
-
-        // Apenas para tratar o return do while
-        if (sock == -1) {
-            break;
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(3000)); //Evita consumo elevado de CPU
-    }*/
-    vTaskDelay(pdMS_TO_TICKS(3000)); //Evita consumo elevado de CPU
 }
 
 static void push16(std::vector<uint8_t>& buffer, uint16_t value)
@@ -166,7 +299,7 @@ static void push32(std::vector<uint8_t>& buffer, uint32_t value)
     buffer.push_back(value & 0xFF);
 }
 
-bool sendAetherPacket(int sock, uint16_t type, uint16_t module, const std::vector<uint8_t>& payload)
+bool sendAetherPacket(uint16_t type, uint16_t module, const std::vector<uint8_t>& payload)
 {
     std::vector<uint8_t> buffer;
     buffer.reserve(11 + payload.size());
@@ -186,7 +319,7 @@ bool sendAetherPacket(int sock, uint16_t type, uint16_t module, const std::vecto
     while (totalSend < buffer.size())
     {
         int sent = send(
-            sock,
+            tcp_socket,
             buffer.data() + totalSend,
             buffer.size() - totalSend,
             0
@@ -206,14 +339,11 @@ bool sendAetherPacket(int sock, uint16_t type, uint16_t module, const std::vecto
 bool sendHandshake()
 {
     std::string deviceId = "IDESP32";
-
     sendAetherPacket(
-        sock,
         CMD_HELLO,
         MODULE_ESP32,
         std::vector<uint8_t>(deviceId.begin(), deviceId.end())
     );
-
     return true;
 }
 
@@ -234,7 +364,6 @@ void sensor_read_thread(void* arg)
         // ========================
         //    Leitura do Sensor
         // ========================
-        //TEMPERATURA_AQUARIO_DS18B2 = ds18b20_get_temp();
 
         // Ler temperatura do DS18B20 (externa)
         ds18b20_requestTemperatures();
@@ -254,35 +383,14 @@ void sensor_read_thread(void* arg)
         j["event"]["value"] = TEMPERATURA_AQUARIO_DS18B2;
         j["event"]["read_timestamp"] = timestamp;
 
-        /*
-        std::string json = R"({
-        "event":
-            {
-              "type": "sensor",
-              "sensor_type": "temperature",
-              "sensor_external_id": "water_temp_01",
-              "value": 26.5,
-              "read_timestamp": 1700000000
-            }
-        })";
-
-        std::vector<uint8_t> payload(json.begin(), json.end());*/
         std::string jsonStr = j.dump();
         std::vector<uint8_t> payload(jsonStr.begin(), jsonStr.end());
 
-        if (!sendAetherPacket(
-            sock,
+        sendAetherPacket(
             CMD_DATA_PUSH, // type / command
             MODULE_ESP32, // module Poseidon
             payload
-        ))
-        {
-            close(sock);
-            sock = -1;
-            tcp_service_init("192.168.0.133", 9000);
-            vTaskDelay(pdMS_TO_TICKS(1000)); //Evita consumo elevado de CPU
-            vTaskDelete(nullptr);
-        }
+        );
 
         ESP_LOGI("[POSEIDON]","Dados do Sensor enviado com sucesso!");
 

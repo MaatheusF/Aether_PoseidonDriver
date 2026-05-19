@@ -5,6 +5,7 @@ idf_component_register(
         "core/network/debug_server.cpp"
         "poseidon/poseidon_main.cpp"
         "poseidon/network/tcp_service.cpp"
+        "poseidon/service/sensor_read.cpp"
 
         INCLUDE_DIRS
         "."
