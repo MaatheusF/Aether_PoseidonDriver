@@ -11,7 +11,9 @@
 #include "../components/ds18b20/ds18b20.h"
 #include "driver/temperature_sensor.h"
 #include "sdkconfig.h"
+#include "../../../external/json.hpp"
 #include "freertos/semphr.h"
+#include "../service/relay_change.hpp"
 
 // Refactor init
 
@@ -49,7 +51,7 @@ void tcp_service_start(const char* host, uint16_t port)
     strncpy(server_host, host, sizeof(server_host));
     server_port = port;
     tcp_mutex = xSemaphoreCreateMutex(); // Instancia o Mutex
-    xTaskCreate(tcp_task, "tcp_task", 4096, nullptr, 5, nullptr);
+    xTaskCreate(tcp_task, "tcp_task", 6144, nullptr, 5, nullptr);
 }
 
 /**
@@ -273,6 +275,14 @@ static void tcp_task(void* arg)
                             }
                             break;
 
+                        case CMD_DATA_PUSH:
+                            emit_event(
+                                TCP_EVENT_DATA_RECEIVED,
+                                rx_buffer,
+                                len
+                            );
+                            break;
+
                         default:
                             emit_event(
                                 TCP_EVENT_DATA_RECEIVED,
@@ -316,20 +326,57 @@ void my_tcp_handler(tcp_event_t event,const uint8_t* data,size_t len)
 {
     switch(event)
     {
-    case TCP_EVENT_CONNECTED:
-        ESP_LOGI(TAG, "TCP conectado");
-        break;
+        case TCP_EVENT_CONNECTED:
+        {
+            ESP_LOGI(TAG, "TCP conectado");
+            break;
+        }
 
-    case TCP_EVENT_DISCONNECTED:
-        ESP_LOGW(TAG, "TCP desconectado");
-        break;
+        case TCP_EVENT_DISCONNECTED:
+        {
+            ESP_LOGW(TAG, "TCP desconectado");
+            break;
+        }
 
-    case TCP_EVENT_DATA_RECEIVED:
-        ESP_LOGI(TAG, "Pacote recebido");
-        break;
+        case TCP_EVENT_DATA_RECEIVED:
+        {
+            uint32_t payload_size = read32(&data[7]);
 
-    default:
-        break;
+            // Valida tamanho minimo
+            if (len < 11)
+            {
+                ESP_LOGW(TAG, "Pacote invalido");
+                break;
+            }
+
+            std::string json_payload(
+                reinterpret_cast<const char*>(&data[11]),
+                payload_size
+            );
+
+            ESP_LOGI(TAG, "Payload JSON: %s", json_payload.c_str());
+
+            // Desserializa o JSON
+            using json = nlohmann::json;
+            json j = json::parse(json_payload);
+
+            //Identifica o tipo do DATA PUSH
+            if (j.contains("relay"))
+            {
+                relay_change_state(j);
+                break;
+            }
+
+            ESP_LOGI(TAG, "Recebido DATA_PUSH sem roteamento!");
+
+            break;
+        }
+
+        default:
+        {
+            break;
+        }
+
     }
 }
 
@@ -360,7 +407,9 @@ static void push32(std::vector<uint8_t>& buffer, uint32_t value)
 */
 uint16_t read16(const uint8_t* data)
 {
-    return (data[0] << 8) | data[1];
+    return
+        (static_cast<uint16_t>(data[0]) << 8) |
+        static_cast<uint16_t>(data[1]);
 }
 
 /**
@@ -371,10 +420,10 @@ uint16_t read16(const uint8_t* data)
 uint32_t read32(const uint8_t* data)
 {
     return
-        (data[0] << 24) |
-        (data[1] << 16) |
-        (data[2] << 8)  |
-        data[3];
+        (static_cast<uint32_t>(data[0]) << 24) |
+        (static_cast<uint32_t>(data[1]) << 16) |
+        (static_cast<uint32_t>(data[2]) << 8)  |
+        static_cast<uint32_t>(data[3]);
 }
 
 /**

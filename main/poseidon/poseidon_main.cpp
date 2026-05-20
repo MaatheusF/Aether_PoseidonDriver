@@ -1,5 +1,6 @@
 #include "poseidon_main.hpp"
 #include "service/sensor_read.hpp"
+#include "service/relay_change.hpp"
 
 #include "network/tcp_service.hpp"
 
@@ -15,4 +16,7 @@ void poseidon_main(){
 
     // Inicia o processo de leitura dos sensores
     sensor_read_start();
+
+    // Inicializa os Relays
+    relay_init();
 }

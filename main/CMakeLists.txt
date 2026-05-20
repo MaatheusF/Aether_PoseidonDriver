@@ -6,6 +6,7 @@ idf_component_register(
         "poseidon/poseidon_main.cpp"
         "poseidon/network/tcp_service.cpp"
         "poseidon/service/sensor_read.cpp"
+        "poseidon/service/relay_change.cpp"
 
         INCLUDE_DIRS
         "."
