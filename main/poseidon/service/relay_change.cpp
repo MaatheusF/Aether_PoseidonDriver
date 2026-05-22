@@ -12,8 +12,8 @@ static auto TAG = "[Relay]";                        // Tag para logs relacionado
 //   Definições de pinos
 // ========================
 
-#define RELAY_LIGHT_AQUARIO GPIO_NUM_20                  // Definição do pino G20 para uso do Relay que controle o estado da Luz do Aquario
-#define RELAY_LIGHT_PLANTAS GPIO_NUM_21                  // Definição do pino G21 para uso do Relay que controle o estado da Luz das plantas
+#define RELAY_LIGHT_AQUARIO GPIO_NUM_25                  // Definição do pino G25 para uso do Relay que controle o estado da Luz do Aquario
+#define RELAY_LIGHT_PLANTAS GPIO_NUM_26                  // Definição do pino G26 para uso do Relay que controle o estado da Luz das plantas
 
 /**
  * @brief Inicializa os pinos GPIO utilizados para controlar os relays.

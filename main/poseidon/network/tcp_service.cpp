@@ -168,6 +168,8 @@ bool tcp_send(const uint8_t* data, size_t len)
  */
 static void tcp_task(void* arg)
 {
+    static std::vector<uint8_t> tcp_rx_buffer;
+
     while (true)
     {
         if (!connected)
@@ -230,68 +232,81 @@ static void tcp_task(void* arg)
             emit_event(TCP_EVENT_CONNECTED);
         }
 
-        uint8_t rx_buffer[512];
+        uint8_t temp_buffer[512];
 
         int len = recv(
             tcp_socket,
-            rx_buffer,
-            sizeof(rx_buffer),
+            temp_buffer,
+            sizeof(temp_buffer),
             MSG_DONTWAIT
         );
 
         if (len > 0)
         {
-            if (len >= 11)
-            {
-                uint16_t magic  = read16(&rx_buffer[0]);
-                uint8_t version = rx_buffer[2];
-                uint16_t type   = read16(&rx_buffer[3]);
-                uint16_t module = read16(&rx_buffer[5]);
-                uint32_t size   = read32(&rx_buffer[7]);
+            tcp_rx_buffer.insert(
+                tcp_rx_buffer.end(),
+                temp_buffer,
+                temp_buffer + len
+            );
 
-                if (11 + size > len)
+            while (true)
+            {
+                // Precisa ter header completo
+                if (tcp_rx_buffer.size() < 11)
                 {
-                    ESP_LOGW(TAG, "Pacote incompleto");
+                    break;
+                }
+
+                uint16_t magic = read16(&tcp_rx_buffer[0]);
+
+                // Sincroniza no header
+                if (magic != AETHER_MAGIC)
+                {
+                    tcp_rx_buffer.erase(tcp_rx_buffer.begin());
                     continue;
                 }
 
-                ESP_LOGI("DEBUG", "Tipo do pacote: 0x%04X", type);
+                uint16_t type = read16(&tcp_rx_buffer[3]);
+                uint32_t payload_size = read32(&tcp_rx_buffer[7]);
 
-                if (magic == AETHER_MAGIC)
+                size_t packet_size = 11 + payload_size;
+
+                // Pacote ainda incompleto
+                if (tcp_rx_buffer.size() < packet_size)
                 {
-                    switch (type)
-                    {
-                        case CMD_ACK:
-                            if (send_packet_waiting_ack)
-                            {
-                                send_packet_ack_received = true;
-                            }
-                            break;
-
-                        case HELLO_ACK:
-                            if (send_packet_waiting_ack)
-                            {
-                                send_packet_ack_received = true;
-                            }
-                            break;
-
-                        case CMD_DATA_PUSH:
-                            emit_event(
-                                TCP_EVENT_DATA_RECEIVED,
-                                rx_buffer,
-                                len
-                            );
-                            break;
-
-                        default:
-                            emit_event(
-                                TCP_EVENT_DATA_RECEIVED,
-                                rx_buffer,
-                                len
-                            );
-                            break;
-                    }
+                    break;
                 }
+
+                ESP_LOGI(TAG, "Pacote completo recebido (%u bytes)", packet_size);
+
+                switch (type)
+                {
+                    case CMD_ACK:
+                    case HELLO_ACK:
+                    {
+                        if (send_packet_waiting_ack)
+                        {
+                            send_packet_ack_received = true;
+                        }
+                        break;
+                    }
+
+                    default:
+                        {
+                            emit_event(
+                                TCP_EVENT_DATA_RECEIVED,
+                                tcp_rx_buffer.data(),
+                                packet_size
+                            );
+                            break;
+                        }
+                }
+
+                // Remove pacote processado
+                tcp_rx_buffer.erase(
+                    tcp_rx_buffer.begin(),
+                    tcp_rx_buffer.begin() + packet_size
+                );
             }
         }
         else if (len == 0)
@@ -314,7 +329,7 @@ static void tcp_task(void* arg)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -340,12 +355,17 @@ void my_tcp_handler(tcp_event_t event,const uint8_t* data,size_t len)
 
         case TCP_EVENT_DATA_RECEIVED:
         {
-            uint32_t payload_size = read32(&data[7]);
-
-            // Valida tamanho minimo
             if (len < 11)
             {
                 ESP_LOGW(TAG, "Pacote invalido");
+                break;
+            }
+
+            uint32_t payload_size = read32(&data[7]);
+
+            if ((11 + payload_size) > len)
+            {
+                ESP_LOGW(TAG, "Payload incompleto");
                 break;
             }
 
